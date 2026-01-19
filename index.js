@@ -1345,6 +1345,7 @@ const HTML = `<!DOCTYPE html>
         render();
       } catch (e) {
         toast(e.message, 'error');
+        render();
       }
     };
 
