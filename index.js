@@ -351,7 +351,7 @@ const defaultConfig = {
       [_CK.p5]: { enabled: false, port: 0 },
       config: ''
     },
-    [_CK.t2]: { enabled: false, version: 'v1', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false },
+    [_CK.t2]: { enabled: false, version: 'v0', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false },
     [_CK.t3]: { enabled: false, server: '', key: '', insecure: false, gpu: false, disableAutoUpdate: true, autoStart: false }
   }
 };
