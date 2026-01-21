@@ -411,10 +411,10 @@ const startToolProcess = (name, binPath, args = [], options = {}) => {
         reject(err);
       }
     });
-    proc.on('exit', code => {
+    proc.on('exit', (code, signal) => {
       pids[name] = null;
       if (!started) {
-        reject(new Error(`Process exited early with code ${code}`));
+        reject(new Error(`Process exited early with code ${code} signal ${signal}`));
       }
     });
     setTimeout(() => {
