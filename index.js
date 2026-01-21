@@ -379,6 +379,7 @@ const log = (category, level, msg) => {
   if (category === 'bot' && !config.logs?.logBots) return;
   if (category === 'api' && !config.logs?.logApi) return;
   const entry = { time: new Date().toISOString(), type: category, level, msg };
+  console.log(`[${category}] ${msg}`);
   logs.push(entry);
   while (logs.length > (config.logs?.maxLines || 500)) logs.shift();
   broadcast('log', entry);
