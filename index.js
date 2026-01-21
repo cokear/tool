@@ -94,6 +94,8 @@ const _DL = {
   nz_linux_arm: _d('bGludXhfYXJtNjQuemlw'),
   nz_amd_bin: _d('aHR0cHM6Ly9hbWQ2NC5zc3NzLm55Yy5tbi9hZ2VudA=='),
   nz_arm_bin: _d('aHR0cHM6Ly9hcm02NC5zc3NzLm55Yy5tbi9hZ2VudA=='),
+  nz_amd_v1: _d('aHR0cHM6Ly9hbWQ2NC5zc3NzLm55Yy5tbi92MQ=='),
+  nz_arm_v1: _d('aHR0cHM6Ly9hcm02NC5zc3NzLm55Yy5tbi92MQ=='),
   km: _d('aHR0cHM6Ly9naXRodWIuY29tL2tvbWFyaS1tb25pdG9yL2tvbWFyaS1hZ2VudC9yZWxlYXNlcy9sYXRlc3QvZG93bmxvYWQv'),
   km_prefix: _d('a29tYXJpLWFnZW50LQ=='),
   km_win: _d('d2luZG93cy1hbWQ2NC5leGU='),
@@ -351,7 +353,7 @@ const defaultConfig = {
       [_CK.p5]: { enabled: false, port: 0 },
       config: ''
     },
-    [_CK.t2]: { enabled: false, version: 'v0', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false },
+    [_CK.t2]: { enabled: false, version: 'v1', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false },
     [_CK.t3]: { enabled: false, server: '', key: '', insecure: false, gpu: false, disableAutoUpdate: true, autoStart: false }
   }
 };
@@ -704,8 +706,14 @@ const tools = {
     install: async () => {
       const arch = getArch();
       if (arch.platform !== 'linux') throw new Error('\u4ec5\u652f\u6301 Linux');
-      const url = arch.arch === 'arm64' ? _DL.nz_arm_bin : _DL.nz_amd_bin;
-      log('tool', 'info', `[${_CK.t2}] Downloading from: ${url}`);
+      const version = config.tools[_CK.t2].version || 'v1';
+      let url;
+      if (version === 'v0') {
+        url = arch.arch === 'arm64' ? _DL.nz_arm_bin : _DL.nz_amd_bin;
+      } else {
+        url = arch.arch === 'arm64' ? _DL.nz_arm_v1 : _DL.nz_amd_v1;
+      }
+      log('tool', 'info', `[${_CK.t2}] Version: ${version}, Downloading from: ${url}`);
       try {
         const binName = getRandomFileName(_CK.t2, 'bin');
         const binPath = join(BIN_DIR, binName);
