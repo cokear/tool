@@ -429,8 +429,8 @@ const startToolProcess = (name, binPath, args = [], options = {}) => {
 const downloadFile = (url, dest) => {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(dest);
-    const get = url.startsWith('https') ? httpsGet : httpGet;
-    get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+    const get = url.startsWith('https') ? https : http;
+    get.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         file.close();
         return downloadFile(res.headers.location, dest).then(resolve).catch(reject);
