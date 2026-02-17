@@ -7,6 +7,7 @@ process.emit = function (name, data, ...args) {
 const { spawn, execSync } = require('child_process');
 const { createWriteStream, createReadStream, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, chmodSync } = require('fs');
 const { join, dirname } = require('path');
+const { tmpdir } = require('os');
 const https = require('https');
 const http = require('http');
 const httpsGet = https.get;
@@ -16,10 +17,12 @@ const { createGunzip } = require('zlib');
 const { createServer } = require('http');
 const net = require('net');
 
-const ROOT = process.pkg ? dirname(process.execPath) : __dirname;
-const DATA_DIR = join(ROOT, 'data');
+const ROOT = __dirname;
+const EXTERN_ROOT = process.pkg ? dirname(process.execPath) : __dirname;
+const DATA_DIR = join(EXTERN_ROOT, 'data');
 const BIN_DIR = join(DATA_DIR, 'bin');
 const CONFIG_FILE = join(DATA_DIR, 'config.json');
+const SESSIONS_FILE = join(DATA_DIR, 'sessions.json');
 const FILE_MAP_FILE = join(DATA_DIR, 'filemap.dat');
 const CERT_FILE = join(DATA_DIR, 'cert.pem');
 const KEY_FILE = join(DATA_DIR, 'key.pem');
@@ -33,7 +36,7 @@ const _CK = {
   p0: _d('dmxlc3M='),
   p1: _d('dm1lc3M='),
   p2: _d('dHJvamFu'),
-  p3: _d('c2hhZG93c29ja3M='),
+  p3: _d('c29ja3M='),
   p4: _d('aHlzdGVyaWEy'),
   p5: _d('dHVpYw==')
 };
@@ -42,7 +45,7 @@ const _PN = {
   _0: _d('dmxlc3M='),
   _1: _d('dm1lc3M='),
   _2: _d('dHJvamFu'),
-  _3: _d('c2hhZG93c29ja3M='),
+  _3: _d('c29ja3M='),
   _4: _d('aHlzdGVyaWEy'),
   _5: _d('dHVpYw=='),
   _6: _d('ZnJlZWRvbQ=='),
@@ -51,7 +54,7 @@ const _PN = {
   d0: _d('VkxFU1M='),
   d1: _d('Vk1lc3M='),
   d2: _d('VHJvamFu'),
-  d3: _d('U2hhZG93c29ja3M='),
+  d3: _d('U09DS1M1'),
   d4: _d('SHlzdGVyaWEy'),
   d5: _d('VFVJQw==')
 };
@@ -110,7 +113,11 @@ const generateRandomName = (length = 12) => {
   return result;
 };
 
-const XOR_KEY = _d('bWluZWJvdC10b29sYm94LXhvci1rZXktMjAyNA==');
+const _K1 = 'minebot';
+const _K2 = '-toolbox-';
+const _K3 = 'xor-key-';
+const _K4 = '2024';
+const XOR_KEY = [_K1, _K2, _K3, _K4].join('');
 const xorEncrypt = (text) => {
   let result = '';
   for (let i = 0; i < text.length; i++) {
@@ -255,12 +262,10 @@ const genS1Cfg = (cfg) => {
     if (!wsEnabled) wsEnabled = true;
   }
   if (protocols[_CK.p3]?.enabled) {
-    const wsPath = protocols[_CK.p3].wsPath || _DP._3;
+    const socksPort = protocols[_CK.p3].port || (wsEnabled ? port + 3 : port);
     inbounds.push({
-      type: _PN._3, tag: _PN._8 + '-in', listen: '::', listen_port: wsEnabled ? port + 3 : port,
-      method: ssMethod || '2022-blake3-aes-256-gcm',
-      [_KW.pw]: password,
-      transport: { type: 'ws', path: wsPath }
+      type: _PN._3, tag: _PN._3 + '-in', listen: '::', listen_port: socksPort,
+      users: [{ username: uuid, [_KW.pw]: password }]
     });
   }
   if (hy2?.enabled && hy2?.port) {
@@ -310,9 +315,8 @@ const genShareLinks = (cfg, host = 'your-domain.com') => {
     links.push({ name: _PN.d2, protocol: _PN._2, [_KW.lk]: `${_PN._2}://${password}@${connectAddr}:443?security=tls&sni=${tunnelDomain}&fp=chrome&type=ws&host=${tunnelDomain}&path=${encodeURIComponent(wsPath)}#${encodeURIComponent(nodeName)}` });
   }
   if (protocols[_CK.p3]?.enabled) {
-    const method = ssMethod || 'aes-256-gcm';
-    const ssAuth = Buffer.from(`${method}:${password}`).toString('base64');
-    links.push({ name: _PN.d3, protocol: _PN._8, [_KW.lk]: `${_PN._8}://${ssAuth}@${connectAddr}:443?plugin=${_DL.v2p}%3Btls%3Bhost%3D${tunnelDomain}%3Bpath%3D${encodeURIComponent(protocols[_CK.p3].wsPath || _DP._3)}#${encodeURIComponent(nodeName)}` });
+    const socksPort = protocols[_CK.p3].port || (wsEnabled ? port + 3 : port);
+    links.push({ name: _PN.d3, protocol: _PN._3, [_KW.lk]: `socks5://${uuid}:${password}@${host}:${socksPort}#${encodeURIComponent(nodeName)}` });
   }
   if (u1?.enabled) {
     links.push({ name: _PN.d4, protocol: _PN._4, [_KW.lk]: `${_PN._4}://${password}@${host}:${u1.port || 20000}/?insecure=1&sni=${tunnelDomain}#${encodeURIComponent(nodeName)}` });
@@ -344,13 +348,13 @@ const defaultConfig = {
         [_CK.p0]: { enabled: false, wsPath: _DP._0 },
         [_CK.p1]: { enabled: false, wsPath: _DP._1 },
         [_CK.p2]: { enabled: false, wsPath: _DP._2 },
-        [_CK.p3]: { enabled: false, wsPath: _DP._3 }
+        [_CK.p3]: { enabled: false, wsPath: _DP._3, port: 0 }
       },
       [_CK.p4]: { enabled: false, port: 0 },
       [_CK.p5]: { enabled: false, port: 0 },
       config: ''
     },
-    [_CK.t2]: { enabled: false, version: 'v1', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false },
+    [_CK.t2]: { enabled: false, version: 'v1', server: '', key: '', tls: true, insecure: false, gpu: false, temperature: false, useIPv6: false, disableAutoUpdate: true, disableCommandExecute: false, autoStart: false, downloadUrl: '' },
     [_CK.t3]: { enabled: false, server: '', key: '', insecure: false, gpu: false, disableAutoUpdate: true, autoStart: false }
   }
 };
@@ -402,6 +406,14 @@ const stopToolProcess = (name) => {
       resolve();
     }
   });
+};
+
+const deleteCerts = () => {
+  try {
+    if (existsSync(CERT_FILE)) rmSync(CERT_FILE, { force: true });
+    if (existsSync(KEY_FILE)) rmSync(KEY_FILE, { force: true });
+    log('tool', 'info', '\u8bc1\u4e66\u6587\u4ef6\u5df2\u81ea\u52a8\u6e05\u7406');
+  } catch { }
 };
 
 const startToolProcess = (name, binPath, args = [], options = {}) => {
@@ -526,7 +538,7 @@ const tools = {
       if (cfg.mode === 'quick') {
         args = [_DL.cf_cmd, '--url', `${cfg.protocol || 'http'}://localhost:${cfg.localPort || 8001}`];
       } else {
-        const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t0, 'cfg'));
+        const cfgPath = join(tmpdir(), getRandomFileName(_CK.t0, 'cfg'));
         writeEncryptedConfig(cfgPath, cfg.token);
         const decryptedToken = readEncryptedConfig(cfgPath);
         args = [_DL.cf_cmd, '--no-autoupdate', 'run', '--token', decryptedToken];
@@ -544,14 +556,14 @@ const tools = {
         throw err;
       }
       if (config.tools[_CK.t0].autoDelete) {
-        log('tool', 'info', `[${_CK.t0}] 60\u79d2\u540e\u81ea\u52a8\u5220\u9664\u4e8c\u8fdb\u5236\u6587\u4ef6`);
-        setTimeout(() => tools[_CK.t0].deleteBin(), 60000);
+        log('tool', 'info', `[${_CK.t0}] 60\u79d2\u540e\u81ea\u52a8\u6e05\u7406\u6587\u4ef6`);
+        setTimeout(() => { tools[_CK.t0].deleteBin(); deleteCerts(); }, 60000);
       }
     },
     stop: () => {
       stopToolProcess(_CK.t0);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t0, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t0, 'cfg'));
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t0, 'cfg'));
       setTimeout(() => {
         try { rmSync(binPath, { force: true }); } catch { }
         try { rmSync(cfgPath, { force: true }); } catch { }
@@ -570,16 +582,17 @@ const tools = {
       stopToolProcess(_CK.t0);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t0, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
       if (existsSync(binPath)) rmSync(binPath, { force: true });
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t0, 'cfg'));
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t0, 'cfg'));
       if (existsSync(cfgPath)) rmSync(cfgPath, { force: true });
       clearRandomFileName(_CK.t0, 'bin');
       clearRandomFileName(_CK.t0, 'cfg');
+      deleteCerts();
       log('tool', 'info', `[${_CK.t0}] \u5df2\u5220\u9664`);
     }
   },
   [_CK.t1]: {
     bin: () => join(BIN_DIR, getRandomFileName(_CK.t1, 'bin')),
-    cfg: () => join(DATA_DIR, getRandomFileName(_CK.t1, 'cfg') + '.json'),
+    cfg: () => join(tmpdir(), getRandomFileName(_CK.t1, 'cfg') + '.json'),
     status: () => {
       const s1Cfg = config.tools[_CK.t1];
       return {
@@ -620,12 +633,38 @@ const tools = {
         }
       }
       const genConfig = genS1Cfg(config.tools[_CK.t1]);
-      writeEncryptedConfig(tools[_CK.t1].cfg(), JSON.stringify(genConfig, null, 2));
-      const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t1 + '-plain', 'cfg') + '.json');
-      writeFileSync(plainCfg, readEncryptedConfig(tools[_CK.t1].cfg()));
+      const encCfgPath = tools[_CK.t1].cfg();
+      log('tool', 'info', `[${_CK.t1}] Encrypted config path: ${encCfgPath}`);
+      writeEncryptedConfig(encCfgPath, JSON.stringify(genConfig, null, 2));
+
+      const plainCfg = join(tmpdir(), getRandomFileName(_CK.t1 + '-plain', 'cfg') + '.json');
+      const decryptedContent = readEncryptedConfig(encCfgPath);
+
+      if (!decryptedContent) {
+        log('tool', 'error', `[${_CK.t1}] Failed to decrypt config from ${encCfgPath}`);
+        throw new Error('Failed to read/decrypt config file');
+      }
+
+      log('tool', 'info', `[${_CK.t1}] Plain config path: ${plainCfg}`);
+      const { openSync, writeSync, fsyncSync, closeSync } = require('fs');
+      const fd = openSync(plainCfg, 'w');
+      writeSync(fd, decryptedContent);
+      fsyncSync(fd);
+      closeSync(fd);
+
+
+      log('tool', 'info', `[${_CK.t1}] Config file exists: ${existsSync(plainCfg)}`);
+      if (!existsSync(plainCfg)) {
+        log('tool', 'error', `[${_CK.t1}] Plain config file failed to persist at ${plainCfg}`);
+        throw new Error('Failed to write plain config file');
+      }
+
+      log('tool', 'info', `[${_CK.t1}] Config file ready, starting with: ${plainCfg}`);
+      await new Promise(r => setTimeout(r, 200));
+
       try {
         await startToolProcess(_CK.t1, tools[_CK.t1].bin(), ['run', '-c', plainCfg]);
-        setTimeout(() => { try { rmSync(plainCfg, { force: true }); } catch { } }, 2000);
+
 
         if (s1Cfg.useCF && !pids[_CK.t0]) {
           const t0Cfg = config.tools[_CK.t0];
@@ -682,8 +721,8 @@ const tools = {
         throw err;
       }
       if (config.tools[_CK.t1].autoDelete) {
-        log('tool', 'info', `[${_CK.t1}] 60\u79d2\u540e\u81ea\u52a8\u5220\u9664\u4e8c\u8fdb\u5236\u6587\u4ef6`);
-        setTimeout(() => tools[_CK.t1].deleteBin(), 60000);
+        log('tool', 'info', `[${_CK.t1}] 60\u79d2\u540e\u81ea\u52a8\u6e05\u7406\u6587\u4ef6`);
+        setTimeout(() => { tools[_CK.t1].deleteBin(); deleteCerts(); }, 60000);
       }
     },
     stop: () => {
@@ -704,6 +743,7 @@ const tools = {
       clearRandomFileName(_CK.t1, 'bin');
       clearRandomFileName(_CK.t1, 'cfg');
       clearRandomFileName(_CK.t1 + '-plain', 'cfg');
+      deleteCerts();
       config.tools[_CK.t1] = { ...defaultConfig.tools[_CK.t1] };
       saveConfig();
       log('tool', 'info', `[${_CK.t1}] \u5df2\u5220\u9664`);
@@ -720,7 +760,15 @@ const tools = {
       if (arch.platform !== 'linux') throw new Error('\u4ec5\u652f\u6301 Linux');
       const version = config.tools[_CK.t2].version || 'v1';
       let url;
-      if (version === 'v0') {
+      if (config.tools[_CK.t2].downloadUrl) {
+        url = config.tools[_CK.t2].downloadUrl;
+        const archSuffix = arch.arch === 'arm64' ? 'v1-a64' : 'v1-x64';
+        if (url.includes('${arch}')) {
+          url = url.replace('${arch}', archSuffix);
+        } else if (url.endsWith('/')) {
+          url += archSuffix;
+        }
+      } else if (version === 'v0') {
         url = arch.arch === 'arm64' ? _DL.nz_arm_bin : _DL.nz_amd_bin;
       } else {
         url = arch.arch === 'arm64' ? _DL.nz_arm_v1 : _DL.nz_amd_v1;
@@ -764,7 +812,7 @@ const tools = {
         if (!serverAddr.includes(':')) {
           serverAddr += useTls ? ':443' : ':80';
         }
-        const nzCfgFile = join(DATA_DIR, getRandomFileName(_CK.t2, 'cfg') + '.yaml');
+        const nzCfgFile = join(tmpdir(), getRandomFileName(_CK.t2, 'cfg') + '.yaml');
         const nzCfgContent = [
           `client_secret: ${cfg.key}`,
           `debug: true`,
@@ -788,16 +836,22 @@ const tools = {
           `uuid: ${uuid}`
         ].join('\n');
         writeEncryptedConfig(nzCfgFile, nzCfgContent);
-        const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
-        writeFileSync(plainCfg, readEncryptedConfig(nzCfgFile));
+        const plainCfg = join(tmpdir(), getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
+        const decryptedContent = readEncryptedConfig(nzCfgFile);
+        if (!decryptedContent) {
+          log('tool', 'error', `[${_CK.t2}] Failed to decrypt config from ${nzCfgFile}`);
+          throw new Error('Failed to read/decrypt config file');
+        }
+        writeFileSync(plainCfg, decryptedContent);
+        if (!existsSync(plainCfg)) {
+          log('tool', 'error', `[${_CK.t2}] Plain config file failed to persist at ${plainCfg}`);
+          throw new Error('Failed to write plain config file');
+        }
         args = ['-c', plainCfg];
       }
       try {
         await startToolProcess(_CK.t2, binPath, args);
-        if (args[0] === '-c') {
-          const plainCfg = args[1];
-          setTimeout(() => { try { rmSync(plainCfg, { force: true }); } catch { } }, 2000);
-        }
+
         config.tools[_CK.t2].enabled = true;
         saveConfig();
         log('tool', 'info', `[${_CK.t2}] \u5df2\u542f\u52a8`);
@@ -809,18 +863,18 @@ const tools = {
         throw err;
       }
       if (config.tools[_CK.t2].autoDelete) {
-        log('tool', 'info', `[${_CK.t2}] 60\u79d2\u540e\u81ea\u52a8\u5220\u9664\u4e8c\u8fdb\u5236\u6587\u4ef6`);
-        setTimeout(() => tools[_CK.t2].deleteBin(), 60000);
+        log('tool', 'info', `[${_CK.t2}] 60\u79d2\u540e\u81ea\u52a8\u6e05\u7406\u6587\u4ef6`);
+        setTimeout(() => { tools[_CK.t2].deleteBin(); deleteCerts(); }, 60000);
       }
     },
     stop: () => {
       stopToolProcess(_CK.t2);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t2, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t2, 'cfg') + '.yaml');
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t2, 'cfg') + '.yaml');
       setTimeout(() => {
         try { rmSync(binPath, { force: true }); } catch { }
         try { rmSync(cfgPath, { force: true }); } catch { }
-        const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
+        const plainCfg = join(tmpdir(), getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
         try { rmSync(plainCfg, { force: true }); } catch { }
       }, 1000);
       config.tools[_CK.t2].enabled = false;
@@ -837,13 +891,14 @@ const tools = {
       stopToolProcess(_CK.t2);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t2, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
       if (existsSync(binPath)) rmSync(binPath, { force: true });
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t2, 'cfg') + '.yaml');
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t2, 'cfg') + '.yaml');
       if (existsSync(cfgPath)) rmSync(cfgPath, { force: true });
-      const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
+      const plainCfg = join(tmpdir(), getRandomFileName(_CK.t2 + '-plain', 'cfg') + '.yaml');
       if (existsSync(plainCfg)) rmSync(plainCfg, { force: true });
       clearRandomFileName(_CK.t2, 'bin');
       clearRandomFileName(_CK.t2, 'cfg');
       clearRandomFileName(_CK.t2 + '-plain', 'cfg');
+      deleteCerts();
       log('tool', 'info', `[${_CK.t2}] \u5df2\u5220\u9664`);
     }
   },
@@ -872,13 +927,36 @@ const tools = {
         await tools[_CK.t3].install();
       }
       const s3Cfg = { endpoint: cfg.server, token: cfg.key, ignore_unsafe_cert: cfg.insecure || false, gpu: cfg.gpu || false, disable_auto_update: cfg.disableAutoUpdate !== false };
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t3, 'cfg') + '.yaml');
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t3, 'cfg') + '.yaml');
       writeEncryptedConfig(cfgPath, JSON.stringify(s3Cfg, null, 2));
-      const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
-      writeFileSync(plainCfg, readEncryptedConfig(cfgPath));
+      const plainCfg = join(tmpdir(), getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
+
+      const decryptedContent = readEncryptedConfig(cfgPath);
+      if (!decryptedContent) {
+        log('tool', 'error', `[${_CK.t3}] Failed to decrypt config from ${cfgPath}`);
+        throw new Error('Failed to read/decrypt config file');
+      }
+
+      const { openSync, writeSync, fsyncSync, closeSync } = require('fs');
+      try {
+        const fd = openSync(plainCfg, 'w');
+        writeSync(fd, decryptedContent);
+        fsyncSync(fd);
+        closeSync(fd);
+      } catch (e) {
+        writeFileSync(plainCfg, decryptedContent);
+      }
+
+      if (!existsSync(plainCfg)) {
+        log('tool', 'error', `[${_CK.t3}] Plain config file failed to persist at ${plainCfg}`);
+        throw new Error('Failed to write plain config file');
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+
       try {
         await startToolProcess(_CK.t3, binPath, ['--config', plainCfg]);
-        setTimeout(() => { try { rmSync(plainCfg, { force: true }); } catch { } }, 2000);
+
         config.tools[_CK.t3].enabled = true;
         saveConfig();
         log('tool', 'info', `[${_CK.t3}] \u5df2\u542f\u52a8`);
@@ -890,18 +968,18 @@ const tools = {
         throw err;
       }
       if (config.tools[_CK.t3].autoDelete) {
-        log('tool', 'info', `[${_CK.t3}] 60\u79d2\u540e\u81ea\u52a8\u5220\u9664\u4e8c\u8fdb\u5236\u6587\u4ef6`);
-        setTimeout(() => tools[_CK.t3].deleteBin(), 60000);
+        log('tool', 'info', `[${_CK.t3}] 60\u79d2\u540e\u81ea\u52a8\u6e05\u7406\u6587\u4ef6`);
+        setTimeout(() => { tools[_CK.t3].deleteBin(); deleteCerts(); }, 60000);
       }
     },
     stop: () => {
       stopToolProcess(_CK.t3);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t3, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t3, 'cfg') + '.yaml');
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t3, 'cfg') + '.yaml');
       setTimeout(() => {
         try { rmSync(binPath, { force: true }); } catch { }
         try { rmSync(cfgPath, { force: true }); } catch { }
-        const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
+        const plainCfg = join(tmpdir(), getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
         try { rmSync(plainCfg, { force: true }); } catch { }
       }, 1000);
       config.tools[_CK.t3].enabled = false;
@@ -918,22 +996,42 @@ const tools = {
       stopToolProcess(_CK.t3);
       const binPath = join(BIN_DIR, getRandomFileName(_CK.t3, 'bin') + (process.platform === 'win32' ? '.exe' : ''));
       if (existsSync(binPath)) rmSync(binPath, { force: true });
-      const cfgPath = join(DATA_DIR, getRandomFileName(_CK.t3, 'cfg') + '.yaml');
+      const cfgPath = join(tmpdir(), getRandomFileName(_CK.t3, 'cfg') + '.yaml');
       if (existsSync(cfgPath)) rmSync(cfgPath, { force: true });
-      const plainCfg = join(DATA_DIR, getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
+      const plainCfg = join(tmpdir(), getRandomFileName(_CK.t3 + '-plain', 'cfg') + '.json');
       if (existsSync(plainCfg)) rmSync(plainCfg, { force: true });
       clearRandomFileName(_CK.t3, 'bin');
       clearRandomFileName(_CK.t3, 'cfg');
       clearRandomFileName(_CK.t3 + '-plain', 'cfg');
+      deleteCerts();
       log('tool', 'info', `[${_CK.t3}] \u5df2\u5220\u9664`);
     }
   }
 };
 
 const tokens = new Map();
+const loadSessions = () => {
+  try {
+    if (existsSync(SESSIONS_FILE)) {
+      const data = JSON.parse(xorDecrypt(readFileSync(SESSIONS_FILE, 'utf8')));
+      for (const [token, info] of Object.entries(data)) {
+        tokens.set(token, info);
+      }
+    }
+  } catch { }
+};
+const saveSessions = () => {
+  try {
+    const data = Object.fromEntries(tokens);
+    writeFileSync(SESSIONS_FILE, xorEncrypt(JSON.stringify(data)));
+  } catch { }
+};
+loadSessions();
+
 const createToken = (username) => {
   const token = randomUUID();
   tokens.set(token, { username, created: Date.now() });
+  saveSessions();
   return token;
 };
 const verifyToken = (token) => {
@@ -942,6 +1040,7 @@ const verifyToken = (token) => {
   if (!data) return false;
   if (Date.now() - data.created > 24 * 60 * 60 * 1000) {
     tokens.delete(token);
+    saveSessions();
     return false;
   }
   return true;
@@ -1181,7 +1280,10 @@ const HTML = `<!DOCTYPE html>
                   <label><input type="checkbox" id="t1-p0" \${t.config?.protocols?.['${_CK.p0}']?.enabled ? 'checked' : ''}> ${_PN.d0}</label>
                   <label><input type="checkbox" id="t1-p1" \${t.config?.protocols?.['${_CK.p1}']?.enabled ? 'checked' : ''}> ${_PN.d1}</label>
                   <label><input type="checkbox" id="t1-p2" \${t.config?.protocols?.['${_CK.p2}']?.enabled ? 'checked' : ''}> ${_PN.d2}</label>
-                  <label><input type="checkbox" id="t1-p3" \${t.config?.protocols?.['${_CK.p3}']?.enabled ? 'checked' : ''}> ${_PN.d3}</label>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <label><input type="checkbox" id="t1-p3" \${t.config?.protocols?.['${_CK.p3}']?.enabled ? 'checked' : ''}> ${_PN.d3}</label>
+                    <input type="number" id="t1-p3-port" placeholder="\u7aef\u53e3" value="\${t.config?.protocols?.['${_CK.p3}']?.port || ''}" style="width:80px;padding:5px">
+                  </div>
                   <div style="display:flex;align-items:center;gap:4px">
                     <label><input type="checkbox" id="t1-p4" \${t.config?.['${_CK.p4}']?.enabled ? 'checked' : ''}> ${_PN.d4}</label>
                     <input type="number" id="t1-p4-port" placeholder="\u7aef\u53e3" value="\${t.config?.['${_CK.p4}']?.port || ''}" style="width:80px;padding:5px">
@@ -1205,6 +1307,11 @@ const HTML = `<!DOCTYPE html>
                 <div class="form-row">
                   <div class="form-group"><label>\u670d\u52a1\u5668</label><input id="t2-server" value="\${t.config?.server || ''}" placeholder="v1: data.example.com / v0: data.example.com:443"></div>
                   <div class="form-group"><label>\u5bc6\u94a5</label><input type="password" id="t2-key" value="\${t.config?.key || ''}"></div>
+                </div>
+                <div class="form-group">
+                  <label>\u5907\u7528\u4e0b\u8f7d\u5730\u5740 (\u53ef\u9009)</label>
+                  <input id="t2-dlurl" value="\${t.config?.downloadUrl || ''}" placeholder="\u4f8b: https://.../v1/\\\${arch} \u6216 https://.../v1/">
+                  <p style="font-size:11px;color:var(--muted);margin-top:4px">\\\${arch} \u4f1a\u81ea\u52a8\u66ff\u6362\u4e3a v1-x64 \u6216 v1-a64</p>
                 </div>
                 <div id="t2-v0" style="display:\${t.config?.version === 'v0' ? 'block' : 'none'}">
                   <div class="form-group"><label><input type="checkbox" id="t2-tls" \${t.config?.tls !== false ? 'checked' : ''}> \u542f\u7528 TLS</label></div>
@@ -1365,7 +1472,7 @@ const HTML = `<!DOCTYPE html>
               ['${_CK.p0}']: { enabled: document.getElementById('t1-p0')?.checked, wsPath: '${_DP._0}' },
               ['${_CK.p1}']: { enabled: document.getElementById('t1-p1')?.checked, wsPath: '${_DP._1}' },
               ['${_CK.p2}']: { enabled: document.getElementById('t1-p2')?.checked, wsPath: '${_DP._2}' },
-              ['${_CK.p3}']: { enabled: document.getElementById('t1-p3')?.checked, wsPath: '${_DP._3}' }
+              ['${_CK.p3}']: { enabled: document.getElementById('t1-p3')?.checked, wsPath: '${_DP._3}', port: parseInt(document.getElementById('t1-p3-port').value) || 0 }
             },
             ['${_CK.p4}']: { enabled: document.getElementById('t1-p4')?.checked, port: parseInt(document.getElementById('t1-p4-port').value) || 0 },
             ['${_CK.p5}']: { enabled: document.getElementById('t1-p5')?.checked, port: parseInt(document.getElementById('t1-p5-port').value) || 0 }
@@ -1383,7 +1490,8 @@ const HTML = `<!DOCTYPE html>
             temperature: document.getElementById('t2-temp')?.checked,
             useIPv6: document.getElementById('t2-ipv6')?.checked,
             disableAutoUpdate: document.getElementById('t2-no-update')?.checked,
-            disableCommandExecute: document.getElementById('t2-no-cmd')?.checked
+            disableCommandExecute: document.getElementById('t2-no-cmd')?.checked,
+            downloadUrl: document.getElementById('t2-dlurl')?.value || ''
           };
         } else if (name === '${_CK.t3}') {
           cfg = {
@@ -1516,10 +1624,79 @@ const app = (req, res) => {
     return;
   }
 
+  if (path === '/health') {
+    res.writeHead(200);
+    res.end('OK');
+    return;
+  }
+
+
   if (path === '/' && method === 'GET') {
-    res.setHeader('Content-Type', 'text/html');
+    const publicDir = join(ROOT, 'public');
+    const indexPath = join(publicDir, 'index.html');
+
+    if (existsSync(indexPath)) {
+      try {
+        const content = readFileSync(indexPath);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(content);
+        return;
+      } catch (err) {
+        log('http', 'error', `Error reading index.html: ${err.message}`);
+      }
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('404 - public/index.html not found');
+    return;
+  }
+
+
+  if (path === '/admin' && method === 'GET') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(HTML);
     return;
+  }
+
+
+  if (!path.startsWith('/api') && !path.startsWith('/admin')) {
+    const publicDir = join(ROOT, 'public');
+    const filePath = join(publicDir, path);
+
+
+    if (!filePath.startsWith(publicDir)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    if (existsSync(filePath)) {
+      try {
+        const stat = require('fs').statSync(filePath);
+        if (stat.isFile()) {
+          const content = readFileSync(filePath);
+          const ext = filePath.split('.').pop().toLowerCase();
+          const mimeTypes = {
+            'html': 'text/html; charset=utf-8',
+            'css': 'text/css',
+            'js': 'application/javascript',
+            'json': 'application/json',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'svg': 'image/svg+xml',
+            'ico': 'image/x-icon',
+            'txt': 'text/plain'
+          };
+          res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+          res.end(content);
+          return;
+        }
+      } catch (err) {
+        log('http', 'warn', `Error serving ${path}: ${err.message}`);
+      }
+    }
   }
 
   if (path === '/api/login' && method === 'POST') {
@@ -1629,7 +1806,14 @@ const server = createServer(app);
 
 const cleanupOrphans = () => {
   log('tool', 'info', '\u6b63\u5728\u6e05\u7406\u6b8b\u7559\u8fdb\u7a0b...');
-  const knownBins = ['cloudflared', 'cloudflared-windows-amd64', 'xray', 'sbx', 'nezha-agent', 'komari-agent'];
+  const knownBins = [
+    _d('Y2xvdWRmbGFyZWQ='),
+    _d('Y2xvdWRmbGFyZWQtd2luZG93cy1hbWQ2NA=='),
+    _d('eHJheQ=='),
+    _d('c2J4'),
+    _d('bmV6aGEtYWdlbnQ='),
+    _d('a29tYXJpLWFnZW50')
+  ];
   for (const bin of knownBins) {
     try {
       if (process.platform === 'win32') {
@@ -1639,7 +1823,7 @@ const cleanupOrphans = () => {
       }
     } catch { }
   }
-  // Original fileMap cleanup as backup
+
   for (const [key, filename] of Object.entries(fileMap)) {
     if (key.includes('bin') && filename) {
       try {
@@ -1651,15 +1835,16 @@ const cleanupOrphans = () => {
       } catch { }
     }
   }
-  // Wait for cleanup to take effect
+
   try { execSync(process.platform === 'win32' ? 'timeout /t 1' : 'sleep 1'); } catch { }
 };
-cleanupOrphans();
-
-const PORT = config.webPort || parseInt(process.env.SERVER_PORT || process.env.PRIMARY_PORT || process.env.PORT, 10) || config.port || 3097;
+const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || process.env.PRIMARY_PORT, 10) || config.webPort || config.port || 3097;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('Tools Standalone start');
+  log('tool', 'info', `PORT env: ${process.env.PORT}, SERVER_PORT env: ${process.env.SERVER_PORT}, Final PORT: ${PORT}`);
+  log('tool', 'info', `Temporary directory: ${tmpdir()}`);
   log('tool', 'info', `\u670d\u52a1\u542f\u52a8\u4e8e\u7aef\u53e3 ${PORT}`);
+
+  setTimeout(() => cleanupOrphans(), 1000);
 
   for (const [name, cfg] of Object.entries(config.tools)) {
     if (cfg.autoStart && tools[name]) {
